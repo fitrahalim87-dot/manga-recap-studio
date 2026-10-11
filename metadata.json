@@ -1,0 +1,6 @@
+{
+  "name": "Manga Recap Studio",
+  "description": "Tools otomasi video manga rekap dengan motion panel dinamis, auto-sync narasi audio ke naskah, tap-sync manual, dan live preview render video.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
