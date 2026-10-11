@@ -300,9 +300,6 @@ export default function App() {
     setTapSyncState('idle');
     setTapIndex(0);
     setManualStarts([]);
-    if (audioRef.current) {
-      audioRef.current.playbackRate = 1.0;
-    }
     showToast(`Audio "${file.name}" terpilih.`);
   };
 
@@ -802,25 +799,20 @@ export default function App() {
   };
 
   // Auto-compress recorded video to MP4 using server-side FFmpeg (H.264 + AAC + constant 30 FPS)
-  // Sends the original pristine audioFile directly to FFmpeg to preserve 100% natural vocal pitch
   const handleCompressRecordedBlob = async (
     rawBlob: Blob,
     targetQuality: 'high' | 'standard' | 'compact' = compressionQuality
   ) => {
     setIsCompressingMp4(true);
-    setCompressStatusText('Mengompresi ke MP4 H.264 & menjaga keaslian suara narasi...');
+    setCompressStatusText('Auto mengompresi ke MP4 H.264 (Ukuran hemat, mulus 30 FPS)...');
     try {
       const crfVal = targetQuality === 'high' ? 20 : targetQuality === 'compact' ? 28 : 23;
-      const formData = new FormData();
-      formData.append('video', rawBlob, 'canvas_record.webm');
-      if (audioFile) {
-        // Send the original voiceover file directly to FFmpeg to preserve exact vocal pitch & clarity!
-        formData.append('audio', audioFile, audioFile.name || 'voiceover.mp3');
-      }
-
       const res = await fetch(`/api/compress-mp4?crf=${crfVal}&preset=veryfast`, {
         method: 'POST',
-        body: formData,
+        headers: {
+          'Content-Type': rawBlob.type || 'video/webm',
+        },
+        body: rawBlob,
       });
 
       if (!res.ok) {
@@ -832,9 +824,9 @@ export default function App() {
       setRenderedVideoUrl(mp4Url);
       setVideoFormat('mp4');
       setVideoFileSize(mp4Blob.size);
-      setOriginalFileSize(rawBlob.size + (audioFile ? audioFile.size : 0));
+      setOriginalFileSize(rawBlob.size);
       setCompressionQuality(targetQuality);
-      showToast(`Sukses! Video MP4 selesai dengan suara narasi jernih & pitch asli (${(mp4Blob.size / (1024 * 1024)).toFixed(1)} MB)`);
+      showToast(`Sukses! Video otomatis terkompres ke MP4 (${(mp4Blob.size / (1024 * 1024)).toFixed(1)} MB)`);
     } catch (err: any) {
       console.warn('MP4 Auto Compression fallback:', err);
       const fallbackUrl = URL.createObjectURL(rawBlob);
@@ -880,11 +872,34 @@ export default function App() {
     // Use hardware-accelerated canvas stream at locked 30 FPS
     const stream = canvas.captureStream(30);
 
+    // Audio setup if audio exists
+    let audioContext: AudioContext | null = null;
+    let audioSourceNode: AudioBufferSourceNode | null = null;
+    let mixedStream = stream;
+
+    if (audioFile) {
+      try {
+        const audioData = await audioFile.arrayBuffer();
+        audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+        const decodedBuffer = await audioContext.decodeAudioData(audioData);
+
+        const dest = audioContext.createMediaStreamDestination();
+        audioSourceNode = audioContext.createBufferSource();
+        audioSourceNode.buffer = decodedBuffer;
+        audioSourceNode.connect(dest);
+
+        const combinedTracks = [...stream.getVideoTracks(), ...dest.stream.getAudioTracks()];
+        mixedStream = new MediaStream(combinedTracks);
+      } catch (e) {
+        console.warn('Audio mixing error, continuing without audio track:', e);
+      }
+    }
+
     // Hardware-accelerated smooth codec selection (H.264 / VP8)
     const mimeTypes = [
-      'video/mp4;codecs=avc1',
-      'video/webm;codecs=h264',
-      'video/webm;codecs=vp8',
+      'video/mp4;codecs=avc1,mp4a',
+      'video/webm;codecs=h264,opus',
+      'video/webm;codecs=vp8,opus',
       'video/webm'
     ];
     let selectedMime = mimeTypes.find((m) => MediaRecorder.isTypeSupported(m)) || '';
@@ -892,13 +907,13 @@ export default function App() {
     let recorder: MediaRecorder;
     try {
       recorder = selectedMime
-        ? new MediaRecorder(stream, {
+        ? new MediaRecorder(mixedStream, {
             mimeType: selectedMime,
             videoBitsPerSecond: 4_500_000 // 4.5 Mbps for smooth crisp quality
           })
-        : new MediaRecorder(stream);
+        : new MediaRecorder(mixedStream);
     } catch {
-      recorder = new MediaRecorder(stream);
+      recorder = new MediaRecorder(mixedStream);
     }
 
     const recordedChunks: Blob[] = [];
@@ -926,6 +941,9 @@ export default function App() {
 
     // Start recorder without micro-timeslice to generate standard smooth GOP video frames
     recorder.start();
+    if (audioSourceNode) {
+      audioSourceNode.start(0);
+    }
 
     // Real-time synchronized rendering loop with quantized 30 FPS pacing
     const startTime = performance.now();
@@ -939,6 +957,14 @@ export default function App() {
       if (elapsed >= totalVideoDuration) {
         if (recorder.state === 'recording') {
           recorder.stop();
+        }
+        if (audioSourceNode) {
+          try {
+            audioSourceNode.stop();
+          } catch {}
+        }
+        if (audioContext) {
+          audioContext.close();
         }
         return;
       }
@@ -962,15 +988,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#121418] text-[#e2e8f0] flex flex-col font-sans selection:bg-[#ff6b4a] selection:text-white">
       {/* Hidden audio element for sync & preview */}
-      <audio
-        ref={audioRef}
-        {...(audioUrl ? { src: audioUrl } : {})}
-        preload="auto"
-        playsInline
-        onPlay={(e) => {
-          e.currentTarget.playbackRate = 1.0;
-        }}
-      />
+      <audio ref={audioRef} {...(audioUrl ? { src: audioUrl } : {})} preload="auto" />
 
       {/* Top Navigation Bar */}
       <header className="border-b border-[#222733] bg-[#171922] px-4 py-3 sticky top-0 z-30 flex items-center justify-between">

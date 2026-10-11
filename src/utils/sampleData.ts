@@ -118,29 +118,25 @@ export function generateSamplePanels(): PanelItem[] {
  * Uses Web Audio API AudioBuffer with modulated voice harmonics.
  */
 export function createSyntheticNarrationAudio(totalSeconds: number = 14): { blob: Blob; url: string } {
-  const sampleRate = 44100; // Standard 44.1 kHz audio
+  const sampleRate = 22050;
   const numSamples = Math.floor(sampleRate * totalSeconds);
   const buffer = new Float32Array(numSamples);
 
-  // Cadence simulating clear natural Indonesian narration voice
+  // Cadence simulating narration pauses and spoken words
   for (let i = 0; i < numSamples; i++) {
     const t = i / sampleRate;
-    // speech rhythm: sentence pauses
-    const sentencePos = t % 3.6;
-    const isSpeech = sentencePos < 3.2 && (sentencePos % 0.45 < 0.32);
+    // speech rhythm: silence every ~3.5 seconds
+    const sentencePos = t % 3.5;
+    const isSpeech = sentencePos < 3.0 && (sentencePos % 0.4 < 0.28);
     if (isSpeech) {
-      // Natural human fundamental frequency (f0 ~ 210-250 Hz)
-      const f0 = 225 + Math.sin(t * 4.5) * 22;
-      // Vocal harmonics with formant filtering
-      const wave =
-        Math.sin(2 * Math.PI * f0 * t) * 0.35 +
-        Math.sin(2 * Math.PI * f0 * 2 * t) * 0.22 +
-        Math.sin(2 * Math.PI * f0 * 3 * t) * 0.14 +
-        Math.sin(2 * Math.PI * f0 * 4 * t) * 0.08;
-      const noise = (Math.random() - 0.5) * 0.02;
-      buffer[i] = (wave + noise) * 0.55;
+      const f0 = 125 + Math.sin(t * 3.5) * 20; // pitch fluctuation
+      const wave = Math.sin(2 * Math.PI * f0 * t) * 0.4 +
+                   Math.sin(2 * Math.PI * f0 * 2 * t) * 0.25 +
+                   Math.sin(2 * Math.PI * f0 * 3 * t) * 0.15;
+      const noise = (Math.random() - 0.5) * 0.04;
+      buffer[i] = (wave + noise) * 0.6;
     } else {
-      buffer[i] = (Math.random() - 0.5) * 0.002; // ultra-soft ambient floor
+      buffer[i] = (Math.random() - 0.5) * 0.005; // soft room tone
     }
   }
 
